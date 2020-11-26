@@ -145,3 +145,65 @@ rule1 on tele-BH1750#Illuminance do knxtx_val1 %value% endon
 rule1 1
 rule1 on system#boot do backlog var1 0; var2 0 endon on BH1750#Illuminance>%var1% do backlog var1 %value%; knxtx_val1 %value%; var2 %value%; add1 5; sub2 5 endon on BH1750#Illuminance<%var2% do backlog var2 %value%; knxtx_val1 %value%; var1 %value%; add1 5; sub2 5 endon
 ```
+### 7) Rules to Monitor Heartbeat of Main Tasmota controlling several Secondary Tasmota. ###
+There is no Online/Offline on KNX protocol. Rules can be used to add this new behavior. KNX communications is used to regularly check for that MAIN device to be alive. If there is no answer in some threshold time, your SECONDARY devices can turn themselves off.
+With this solution the MAIN device sends its relay state as a heartbeat message (like a watchdog timer reset) to your SECONDARY devices. This message should reset an internal ruletimer of your SECONDARY devices. If that message is not received, for example 30 seconds, their relays will turn off.
+
+On the MAIN device set a GroupAddress to send this Heartbeat like KNXTX1 3.3.3 in the KNX webmenu.
+ 
+RULES
+```
+Rule1 ON system#boot DO BACKLOG KnxTx_Cmnd2 1; var1 1; ruletimer1 10 ENDON
+```
+At system boot (120Vac power applied) the MAIN device turns on its relay. It also sends KNX commands to turn on SECONDARY devices, it stores the value 1 in var1 and starts the ruletimer1 10 seconds countdown(heartbeat).
+```
+Rule1 + ON power1#State DO var1 %value% ENDON
+```
+Whenever MAIN power state changes (by pushbutton, Web UI, timer or MQTT) the power1#State value is stored in var1 (If MAIN loses Ac power no heartbeat is sent).
+```
+Rule1 + ON rules#timer=1 DO BACKLOG knxtx_val1 %var1%;ruletimer1 10 ENDON
+```
+When the ruletimer1 countdown reaches 1 KNX transmits var1 and restart ruletimer1 at 10 seconds. The cycle repeats.
+```
+RULE1 1
+```
+OUTPUT 1 -> 4.4.4
+Output1 of MAIN is sent to 4.4.4. When received by SECONDARY, the SECONDARY matches the state with MAIN.
+
+* In the KNX Menu, set a Group Address to send data or commands by rules, as **KNX TX2**
+
+KNXTX2 -> 4.4.4.
+At boot time KnxTx_Cmnd2 1 is sent from MAIN to 4.4.4. When received by SECONDARY, the SECONDARY turns its relay on.   
+
+MAIN
+
+<img src="https://github.com/DelroyTaylor/pics/blob/main/Main.JPG" />
+
+SECONDARY
+
+<img src="https://github.com/DelroyTaylor/pics/blob/main/Secondary.JPG" />
+
+On each of the SECONDARY devices set a Group Address to receive this Heartbeat like KNXRX1 3.3.3 in the KNX webmenu.
+
+```
+RULE1 ON power1#boot DO ruletimer1 20 ENDON
+```
+When SECONDARY boots, the relay remains off until commanded by MAIN. The SECONDARY starts the ruletimer1 countdown at 20 seconds.
+```
+RULE1 + ON rules#timer=1 DO BACKLOG power1 0; ruletimer1 20 ENDON
+```
+Whenever ruletimer1 reaches 1 second it turns the relay OFF and restarts the ruletimer1 countdown at 20 seconds.
+```
+RULE1 + ON event#knxrx_val1 DO BACKLOG power1 %value%; ruletimer1 20 ENDON
+```
+If the SECONDARY receives a heartbeat transmission from MAIN it stores the value as the state for the relay. These values have following effect:
+* 0 / OFF = relay(s) OFF
+* 1 / ON = turn relay(s) ON
+* 2 / TOGGLE = toggle relay(s)
+
+```
+RULE1 1
+```
+
+4.4.4 -> OUTPUT 1 
+Output1 of MAIN is sent to 4.4.4. When received by SECONDARY, the SECONDARY matches the state with MAIN.
